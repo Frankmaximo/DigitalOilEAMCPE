@@ -1,22 +1,32 @@
-package cpe.webclient.servlet
+package cpe.webclient.servlet;
 
 
+import com.alibaba.fastjson.JSONObject;
+import com.ibm.tivoli.maximo.report.birt.session.WebAppSessionProvider;
+import psdi.util.MXSession;
+import psdi.webclient.system.runtime.WebClientRuntime;
+
+import javax.servlet.ServletException;
+import javax.servlet.http.HttpServlet;
+import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpServletResponse;
+import javax.servlet.http.HttpSession;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
 import java.net.URL;
+import java.nio.charset.StandardCharsets;
 import java.util.Properties;
+import java.util.logging.Logger;
+
 
 /**
  * zhangmeng 20200229
- * 中油瑞飞平台与Maximo系
- *
- *
+ * 中油瑞飞平台与Maximo单点登陆接口
  */
 public class LoginServlet extends HttpServlet {
 
-    private static final long serialVersionUID = -1668394618015299239L;
 
     @Override
     public void doGet(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
@@ -30,8 +40,7 @@ public class LoginServlet extends HttpServlet {
          *  super.doPost(req, resp);
          */
         MXSession mxsession = getMXSession(req);
-//		mxsession.setLocale(Locale.CHINA);
-//		mxsession.setLangCode("ZH");
+
         boolean isLogin = false;
         boolean isConnected = mxsession.isConnected();
         if (isConnected) { // 如果之前已经连接则直接跳转到启动中心
@@ -52,12 +61,7 @@ public class LoginServlet extends HttpServlet {
             // 登陆成功,则转到启动中心
             resp.sendRedirect(startcntrUrl);
 
-            /**
-             * 下面的这段代码无效
-             *   WebClientSession wcs = WebClientSessionFactory.getWebClientSessionFactory().createSession(request, resp);
-             *   WebClientEvent event= new WebClientEvent("loadapp", "startcntr", "startcntr", wcs);
-             *   WebClientRuntime.sendEvent(event);
-             */
+
         }
     }
 
@@ -86,32 +90,43 @@ public class LoginServlet extends HttpServlet {
      */
     public static void connect(MXSession mxsession, HttpServletRequest request) {
         try {
-            MXServer mxServer = MXServer.getMXServer();
+            Logger logger  =  Logger.getLogger(LoginServlet.class.getName());
+
+            psdi.server.MXServer mxServer = psdi.server.MXServer.getMXServer();
             Properties properties = mxServer.getConfig();
             String hostname = properties.getProperty("mxe.hostname").trim();
 
             String token = request.getParameter("token");
 
-            /** 中油瑞飞提供的token验证接口*/
+            /* 中油瑞飞提供的token验证接口*/
 
             URL url = new URL("http://www.cpe-dev.cnpcrd.rdtp.cloud/sys/user/currentuser");
 
             HttpURLConnection connection = (HttpURLConnection) url.openConnection();
-            httpConn.setRequestMethod("GET");
-            httpConn.setRequestProperty("Authorization", "Bearer " + token);
+            connection.setRequestMethod("GET");
+            connection.setRequestProperty("Authorization", "Bearer " + token);
+
+            logger.info("token" + "Bearer " + token);
             connection.connect();
 
             // 定义BufferedReader输入流来读取URL的响应
-            BufferedReader currentuser = new BufferedReader(new InputStreamReader(connection.getInputStream(), "UTF-8"));
+            BufferedReader currentuser = new BufferedReader(new InputStreamReader(connection.getInputStream(), StandardCharsets.UTF_8));
             String line;
+            StringBuilder result = null;
             while ((line = currentuser.readLine()) != null) {
-                result += line;
+
+                result.append(line);
             }
             //解析json对象
-            JSONObject currentuserJson = JSONObject.fromObject(result);
-            System.out.println(currentuserJson.get("loginName"));
+            assert result != null;
 
-            String username = WebClientRuntime.decodeSafevalue(currentuserJson.get("loginName"));
+            /* 阿里巴巴的fastjson解析 字符串转换为对象 */
+            JSONObject currentsJson = (JSONObject) JSONObject.parse(result.toString());
+            /* 修改为SLF4j */
+
+            logger.info("登陆用户名称：" + currentsJson.get("loginName"));
+
+            String username = WebClientRuntime.decodeSafevalue((String) currentsJson.get("loginName"));
             //密码直接使用数据库中存储的密码
             String password = WebClientRuntime.decodeSafevalue("111111");
 
@@ -125,15 +140,5 @@ public class LoginServlet extends HttpServlet {
         }
     }
 
-    /**
-     * 断开连接(退出系统)
-     */
-    public static void disconnect(MXSession mxsession) {
-        try {
-            mxsession.disconnect();
-        } catch (Exception e) {
-            System.err.println(e.getMessage());
-        }
-    }
 
 }
